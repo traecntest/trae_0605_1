@@ -1,0 +1,423 @@
+低空经济与无人机交通管理系统（UTM）API接口设计规范
+
+一、RESTful API设计原则
+
+1. 资源导向：URL表示资源，HTTP方法表示操作
+2. 无状态：每个请求包含所有必要信息
+3. 统一接口：标准化的请求/响应格式
+4. 分层系统：客户端不需要知道中间层
+
+二、基础URL
+
+开发环境：http://localhost:5000/api
+生产环境：https://api.utm.example.com/api
+
+三、认证方式
+
+使用Bearer Token认证：
+Authorization: Bearer <token>
+
+获取Token：
+POST /api/security/authenticate
+{
+  "username": "admin",
+  "password": "password"
+}
+
+响应：
+{
+  "isAuthenticated": true,
+  "userId": "admin",
+  "token": "eyJhbGc...",
+  "role": "Administrator",
+  "expiresAt": "2024-01-01T12:00:00Z"
+}
+
+四、飞行计划API
+
+1. 提交飞行计划
+POST /api/flight-plans
+Content-Type: application/json
+
+请求体：
+{
+  "aircraftId": "guid",
+  "operatorId": "operator-001",
+  "route": {
+    "departurePoint": {
+      "latitude": 39.9042,
+      "longitude": 116.4074
+    },
+    "arrivalPoint": {
+      "latitude": 39.9542,
+      "longitude": 116.4574
+    },
+    "waypoints": [
+      {
+        "sequence": 1,
+        "position": {
+          "latitude": 39.9142,
+          "longitude": 116.4174
+        },
+        "altitudeMeters": 120,
+        "speedMps": 15
+      }
+    ],
+    "cruiseAltitudeMeters": 120,
+    "cruiseSpeedMps": 15
+  },
+  "plannedTime": {
+    "start": "2024-01-01T10:00:00Z",
+    "end": "2024-01-01T11:00:00Z"
+  },
+  "purpose": "CargoDelivery",
+  "notes": "物流配送任务"
+}
+
+响应（201 Created）：
+{
+  "isApproved": true,
+  "flightPlanId": "guid",
+  "reason": null
+}
+
+2. 查询飞行计划
+GET /api/flight-plans/{id}
+
+响应（200 OK）：
+{
+  "id": "guid",
+  "flightId": "FLT-20240101100000-abc123",
+  "aircraftId": "guid",
+  "operatorId": "operator-001",
+  "status": "Approved",
+  "route": { ... },
+  "plannedTime": { ... },
+  "purpose": "CargoDelivery",
+  "submittedAt": "2024-01-01T09:00:00Z",
+  "approvedAt": "2024-01-01T09:05:00Z"
+}
+
+3. 审批飞行计划
+POST /api/flight-plans/{id}/approve?approverId=admin
+
+响应（200 OK）：
+{
+  "isApproved": true,
+  "flightPlanId": "guid"
+}
+
+4. 拒绝飞行计划
+POST /api/flight-plans/{id}/reject?reason=空域冲突
+
+响应（200 OK）
+
+5. 取消飞行计划
+POST /api/flight-plans/{id}/cancel
+
+响应（200 OK）
+
+6. 查询飞行计划列表
+GET /api/flight-plans?operatorId=operator-001
+GET /api/flight-plans?status=InFlight
+
+五、监控API
+
+1. 上报航空器状态
+POST /api/monitoring/aircraft-state?aircraftId={guid}
+Content-Type: application/json
+
+请求体：
+{
+  "aircraftId": "guid",
+  "position": {
+    "latitude": 39.9042,
+    "longitude": 116.4074
+  },
+  "altitude": 120,
+  "groundSpeed": 15,
+  "track": 90,
+  "verticalRate": 0,
+  "heading": 90,
+  "batteryLevel": 85,
+  "signalStrength": -60,
+  "timestamp": "2024-01-01T10:00:00Z"
+}
+
+响应（202 Accepted）
+
+2. 查询航空器轨迹
+GET /api/monitoring/aircraft/{id}/trajectory
+
+响应（200 OK）：
+[
+  {
+    "position": {
+      "latitude": 39.9042,
+      "longitude": 116.4074
+    },
+    "altitude": 120,
+    "groundSpeed": 15,
+    "track": 90,
+    "verticalRate": 0,
+    "timestamp": "2024-01-01T10:00:00Z"
+  }
+]
+
+3. 查询航空器最新状态
+GET /api/monitoring/aircraft/{id}/state
+
+响应（200 OK）：
+{
+  "aircraftId": "guid",
+  "position": { ... },
+  "altitude": 120,
+  "groundSpeed": 15,
+  ...
+}
+
+4. 查询活跃航空器
+GET /api/monitoring/active-aircraft
+
+响应（200 OK）：
+["guid1", "guid2", "guid3"]
+
+六、冲突检测API
+
+1. 执行冲突检测
+POST /api/conflict-detection/detect
+
+响应（200 OK）：
+[
+  {
+    "id": "guid",
+    "aircraftId1": "guid1",
+    "aircraftId2": "guid2",
+    "conflictType": "LossOfSeparation",
+    "severity": "Warning",
+    "tcpaSeconds": 45.5,
+    "cpaMeters": 80.2,
+    "detectedAt": "2024-01-01T10:00:00Z"
+  }
+]
+
+2. 预测航空器轨迹
+GET /api/conflict-detection/predict/{aircraftId}
+
+响应（200 OK）：
+[
+  {
+    "position": {
+      "latitude": 39.9042,
+      "longitude": 116.4074
+    },
+    "altitude": 120,
+    "speed": 15,
+    "track": 90,
+    "time": "2024-01-01T10:00:10Z"
+  }
+]
+
+七、空域管理API
+
+1. 查询所有空域区域
+GET /api/airspace
+
+响应（200 OK）：
+[
+  {
+    "id": "guid",
+    "name": "北京CBD空域",
+    "type": "Controlled",
+    "boundary": { ... },
+    "timeWindow": { ... },
+    "restrictions": { ... },
+    "priority": 1,
+    "isActive": true
+  }
+]
+
+2. 查询单个空域区域
+GET /api/airspace/{id}
+
+响应（200 OK）
+
+3. 创建空域区域
+POST /api/airspace
+Content-Type: application/json
+
+请求体：
+{
+  "id": "guid",
+  "name": "临时禁飞区",
+  "type": "Restricted",
+  "boundary": {
+    "center": {
+      "latitude": 39.9042,
+      "longitude": 116.4074
+    },
+    "radiusMeters": 5000
+  },
+  "timeWindow": {
+    "start": "2024-01-01T10:00:00Z",
+    "end": "2024-01-01T12:00:00Z"
+  },
+  "restrictions": {
+    "maxAltitudeMeters": 0,
+    "maxSpeedMps": 0,
+    "allowedAircraftTypes": []
+  },
+  "priority": 1,
+  "isActive": true
+}
+
+响应（201 Created）
+
+4. 更新空域区域
+PUT /api/airspace/{id}
+
+请求体：同创建
+
+响应（200 OK）
+
+5. 删除空域区域
+DELETE /api/airspace/{id}
+
+响应（204 No Content）
+
+6. 查询活跃空域
+GET /api/airspace/active
+
+响应（200 OK）
+
+7. 查询活跃限制
+GET /api/airspace/restrictions
+
+响应（200 OK）
+
+八、安全API
+
+1. 认证
+POST /api/security/authenticate
+Content-Type: application/json
+
+请求体：
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+响应（200 OK）：
+{
+  "isAuthenticated": true,
+  "userId": "admin",
+  "token": "eyJhbGc...",
+  "role": "Administrator",
+  "expiresAt": "2024-01-01T12:00:00Z"
+}
+
+2. 验证Token
+GET /api/security/validate-token?token=eyJhbGc...
+
+响应（200 OK）
+
+3. 查询审计日志
+GET /api/security/audit?userId=admin&action=login&limit=100
+
+响应（200 OK）：
+[
+  {
+    "userId": "admin",
+    "action": "login",
+    "resource": "authentication",
+    "resourceId": null,
+    "timestamp": "2024-01-01T10:00:00Z",
+    "details": "登录成功",
+    "ipAddress": "192.168.1.100"
+  }
+]
+
+九、错误响应格式
+
+所有错误响应遵循统一格式：
+{
+  "error": {
+    "code": "FlightPlanNotFound",
+    "message": "飞行计划不存在",
+    "details": "Flight plan with ID 'xxx' was not found",
+    "timestamp": "2024-01-01T10:00:00Z"
+  }
+}
+
+HTTP状态码：
+- 200 OK：成功
+- 201 Created：创建成功
+- 202 Accepted：接受处理
+- 204 No Content：删除成功
+- 400 Bad Request：请求参数错误
+- 401 Unauthorized：未认证
+- 403 Forbidden：无权限
+- 404 Not Found：资源不存在
+- 409 Conflict：资源冲突
+- 500 Internal Server Error：服务器内部错误
+
+十、速率限制
+
+- 匿名请求：100次/分钟
+- 认证请求：1000次/分钟
+- 管理接口：10000次/分钟
+
+超出限制返回429 Too Many Requests
+
+十一、跨域支持（CORS）
+
+允许所有来源（开发环境）：
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+
+生产环境应限制具体域名。
+
+十二、WebSocket支持
+
+实时数据推送（未来扩展）：
+ws://localhost:5000/ws/aircraft-states
+ws://localhost:5000/ws/conflict-alerts
+
+客户端订阅特定主题，服务端主动推送更新。
+
+十三、OpenAPI/Swagger文档
+
+开发环境自动启用Swagger UI：
+http://localhost:5000/swagger
+
+提供交互式API文档和测试界面。
+
+十四、版本控制
+
+API版本通过URL路径控制：
+/api/v1/flight-plans
+/api/v2/flight-plans
+
+当前版本：v1（隐式）
+
+十五、最佳实践
+
+1. 使用HTTPS（生产环境）
+2. 实施请求验证
+3. 记录所有API调用日志
+4. 实施健康检查端点：GET /health
+5. 使用ETag支持缓存
+6. 支持分页：?page=1&pageSize=100
+7. 支持字段过滤：?fields=id,name,status
+8. 支持排序：?sort=createdAt&order=desc
+
+十六、SDK支持（未来扩展）
+
+提供多语言SDK：
+- C# SDK
+- Python SDK
+- JavaScript SDK
+- Java SDK
+
+简化客户端集成。

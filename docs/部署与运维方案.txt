@@ -1,0 +1,248 @@
+低空经济与无人机交通管理系统（UTM）部署与运维方案
+
+一、部署架构
+
+1. 容器化部署
+   - 使用Docker容器化所有服务
+   - Kubernetes编排管理
+   - Helm Chart简化部署配置
+
+2. 环境划分
+   - 开发环境（Development）
+   - 测试环境（Testing）
+   - 预生产环境（Staging）
+   - 生产环境（Production）
+
+二、Docker容器化
+
+1. 基础镜像选择
+   FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+   FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+
+2. API服务Dockerfile
+
+   构建阶段：
+   FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+   WORKDIR /src
+   COPY src/UTM.Core/UTM.Core.csproj src/UTM.Core/
+   COPY src/UTM.Airspace/UTM.Airspace.csproj src/UTM.Airspace/
+   COPY src/UTM.Monitoring/UTM.Monitoring.csproj src/UTM.Monitoring/
+   COPY src/UTM.ConflictDetection/UTM.ConflictDetection.csproj src/UTM.ConflictDetection/
+   COPY src/UTM.DynamicAirspace/UTM.DynamicAirspace.csproj src/UTM.DynamicAirspace/
+   COPY src/UTM.Communication/UTM.Communication.csproj src/UTM.Communication/
+   COPY src/UTM.Security/UTM.Security.csproj src/UTM.Security/
+   COPY src/UTM.API/UTM.API.csproj src/UTM.API/
+   RUN dotnet restore src/UTM.API/UTM.API.csproj
+   COPY . .
+   RUN dotnet publish src/UTM.API/UTM.API.csproj -c Release -o /app/publish
+
+   运行阶段：
+   FROM mcr.microsoft.com/dotnet/aspnet:8.0
+   WORKDIR /app
+   COPY --from=publish /app/publish .
+   EXPOSE 80
+   EXPOSE 443
+   HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost/health || exit 1
+   ENTRYPOINT ["dotnet", "UTM.API.dll"]
+
+三、docker-compose.yml（开发环境）
+
+   version: '3.8'
+   services:
+     utm-api:
+       build:
+         context: .
+         dockerfile: src/UTM.API/Dockerfile
+       ports:
+         - "5000:80"
+       environment:
+         - ASPNETCORE_ENVIRONMENT=Development
+       depends_on:
+         - postgres
+         - redis
+       networks:
+         - utm-network
+     postgres:
+       image: postgres:15-alpine
+       environment:
+         - POSTGRES_DB=utm
+         - POSTGRES_USER=postgres
+         - POSTGRES_PASSWORD=postgres
+       volumes:
+         - postgres-data:/var/lib/postgresql/data
+       ports:
+         - "5432:5432"
+     redis:
+       image: redis:7-alpine
+       ports:
+         - "6379:6379"
+     prometheus:
+       image: prom/prometheus:latest
+       ports:
+         - "9090:9090"
+     grafana:
+       image: grafana/grafana:latest
+       ports:
+         - "3000:3000"
+       environment:
+         - GF_SECURITY_ADMIN_PASSWORD=admin
+   networks:
+     utm-network:
+       driver: bridge
+
+四、Kubernetes部署
+
+1. Deployment
+   replicas: 3
+   resources:
+     requests: memory=512Mi, cpu=500m
+     limits: memory=1Gi, cpu=1000m
+   livenessProbe: httpGet /health port=80
+   readinessProbe: httpGet /health port=80
+
+2. Service
+   type: LoadBalancer
+   port: 80 -> targetPort: 80
+
+3. Ingress
+   host: api.utm.example.com
+   TLS enabled
+   rate-limit: 100
+
+4. HPA
+   minReplicas: 3
+   maxReplicas: 10
+   targetCPU: 70%
+   targetMemory: 80%
+
+五、CI/CD流水线
+
+1. GitHub Actions
+   触发条件：push到main/develop，PR到main
+   步骤：
+   a) 构建与测试
+      - Setup .NET 8.0
+      - dotnet restore
+      - dotnet build --configuration Release
+      - dotnet test --collect Code Coverage
+   b) 安全扫描
+      - Snyk漏洞扫描
+      - SonarQube代码质量
+   c) Docker构建
+      - 构建镜像
+      - 推送到GHCR
+   d) 部署到Staging（develop分支）
+      - kubectl set image
+   e) 部署到Production（main分支）
+      - 蓝绿部署
+
+2. Azure DevOps Pipeline
+   阶段：Build -> DeployStaging -> DeployProduction
+   部署策略：Canary（10% -> 50% -> 100%）
+
+六、日志监控
+
+1. 日志框架：Serilog
+   输出目标：Console + File + Elasticsearch
+   日志级别：Information（生产）/Debug（开发）
+   保留策略：30天滚动
+
+2. 监控栈：Prometheus + Grafana
+   关键指标：
+   - 请求率（Request Rate）
+   - 错误率（Error Rate）
+   - 响应时间P50/P95/P99
+   - CPU/内存使用率
+   - 活跃航空器数量
+   - 冲突检测次数
+   - 飞行计划处理量
+
+3. Application Insights
+   - 分布式追踪
+   - 依赖关系监控
+   - 异常自动收集
+   - 性能计数器
+
+4. 告警规则
+   - 错误率 > 1%：Warning
+   - 错误率 > 5%：Critical
+   - 响应时间P99 > 2s：Warning
+   - CPU > 80%持续5分钟：Warning
+   - 内存 > 90%：Critical
+   - Pod重启 > 3次/小时：Critical
+
+七、安全运维
+
+1. 网络安全
+   - TLS 1.3加密传输
+   - Network Policy隔离
+   - WAF防护
+   - DDoS防护
+
+2. 密钥管理
+   - Azure Key Vault / HashiCorp Vault
+   - 密钥自动轮换
+   - 环境变量注入
+
+3. 安全扫描
+   - 容器镜像扫描（Trivy）
+   - 依赖漏洞检测（Dependabot）
+   - 运行时安全（Falco）
+
+八、灾备方案
+
+1. 数据备份
+   - PostgreSQL：每日全量 + 实时WAL归档
+   - Redis：RDB快照 + AOF日志
+   - 备份保留：30天
+   - 跨区域复制
+
+2. 故障恢复
+   - RTO（恢复时间目标）：15分钟
+   - RPO（恢复点目标）：5分钟
+   - 自动故障转移
+   - 多可用区部署
+
+3. 降级策略
+   - 冲突检测降级：使用缓存数据
+   - 监控降级：降低采样频率
+   - API降级：返回缓存响应
+
+九、性能优化
+
+1. 应用层
+   - Native AOT编译（减少启动时间）
+   - 响应压缩（Brotli/Gzip）
+   - 输出缓存
+   - 连接池管理
+
+2. 数据库层
+   - 读写分离
+   - 查询优化
+   - 索引策略
+   - 分区表
+
+3. 缓存层
+   - Redis分布式缓存
+   - 本地内存缓存（IMemoryCache）
+   - 缓存穿透防护
+   - 缓存预热
+
+十、运维自动化
+
+1. 基础设施即代码（IaC）
+   - Terraform：云资源配置
+   - Pulumi：Kubernetes资源
+   - Ansible：配置管理
+
+2. GitOps
+   - ArgoCD：持续部署
+   - 声明式配置
+   - 自动同步
+   - 回滚能力
+
+3. 运维脚本
+   - 数据库迁移
+   - 缓存清理
+   - 日志轮转
+   - 健康检查
